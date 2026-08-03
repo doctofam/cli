@@ -1,0 +1,253 @@
+/* Copyright 2025 Doctofam LLC */
+const commander = require('commander')
+const {
+  printJson,
+  withJson,
+  fail,
+} = require('@monorepool/agentfirst/output.js')
+const buildQuery = require('./buildQuery.js')
+const parseBody = require('./parseBody.js')
+const api = require('./request.js')
+const resolveClinicId = require('./resolveClinicId.js')
+const { dim, bold, cyan } = require('./formatOutput.js')
+
+// doctofam/model/Invoice.js
+const STATUSES =
+  'DRAFT, PENDING, PARTIALLY_PAID, PAID, OVERDUE, REFUNDED or UNCOLLECTIBLE'
+
+function invoicesCommand() {
+  const command = new commander.Command('invoices')
+  command.description(
+    'manage the invoices of your clinic (invoices:read / invoices:write)',
+  )
+
+  withJson(
+    command
+      .command('list')
+      .description('list invoices (GET /api/invoices)')
+      .option('--clinicId <clinicId>', 'only invoices of this clinic')
+      .option('--patientId <patientId>', 'only invoices of this patient')
+      .option(
+        '--startTime <startTime>',
+        'only invoices starting at or after this ISO time',
+      )
+      .option(
+        '--endTime <endTime>',
+        'only invoices ending before this ISO time',
+      )
+      .option('-n, --limit <limit>', 'max results', '25')
+      .option('--skip <skip>', 'skip the first N results')
+      .option('--sortField <sortField>', 'sort by this field, e.g. startTime')
+      .option('--sortDirection <sortDirection>', 'ASC or DESC (default DESC)')
+      .option('--fields <fields>', 'comma-separated projection of fields'),
+  ).action(async options => {
+    try {
+      const invoices = await api.get(
+        `/api/invoices${buildQuery({
+          clinicId: options.clinicId,
+          patientId: options.patientId,
+          startTime: options.startTime,
+          endTime: options.endTime,
+          limit: options.limit,
+          skip: options.skip,
+          sortField: options.sortField,
+          sortDirection: options.sortDirection,
+          fields: options.fields,
+        })}`,
+      )
+
+      if (options.json) {
+        printJson(invoices)
+        return
+      }
+
+      if (invoices.length === 0) {
+        console.log('No invoices found')
+        return
+      }
+
+      console.log(`Found ${invoices.length} invoice(s):`)
+      invoices.forEach((invoice, index) => {
+        const details = [
+          invoice.startTime,
+          invoice.status,
+          invoice.patientId ? `patient ${invoice.patientId}` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+        console.log(`${index + 1}. ${details} (${invoice._id})`)
+      })
+    } catch (error) {
+      fail(error, { json: options.json })
+    }
+  })
+
+  withJson(
+    command
+      .command('get <invoiceId>')
+      .description('raw JSON for one invoice (GET /api/invoices/:invoiceId)'),
+  ).action(async (invoiceId, options) => {
+    try {
+      const invoice = await api.get(`/api/invoices/${invoiceId}`)
+      printJson(invoice)
+    } catch (error) {
+      fail(error, { json: options.json })
+    }
+  })
+
+  withJson(
+    command
+      .command('read <invoiceId>')
+      .description('read one invoice formatted for the terminal'),
+  ).action(async (invoiceId, options) => {
+    try {
+      const invoice = await api.get(`/api/invoices/${invoiceId}`)
+      if (options.json) {
+        printJson(invoice)
+        return
+      }
+      if (!invoice) {
+        console.log('Invoice not found')
+        return
+      }
+      console.log()
+      console.log(bold(invoice.status || invoice._id))
+      console.log(dim(invoice._id))
+      console.log()
+      if (invoice.patientId) {
+        console.log(`${cyan('patientId')}  ${invoice.patientId}`)
+      }
+      if (invoice.clinicId) {
+        console.log(`${cyan('clinicId')}  ${invoice.clinicId}`)
+      }
+      if (invoice.startTime) {
+        console.log(`${cyan('startTime')}  ${invoice.startTime}`)
+      }
+      if (invoice.endTime) {
+        console.log(`${cyan('endTime')}  ${invoice.endTime}`)
+      }
+      if (invoice.lines?.length) {
+        console.log(`${cyan('lines')}  ${invoice.lines.length}`)
+      }
+      if (invoice.note) console.log(`${cyan('note')}  ${invoice.note}`)
+      console.log()
+    } catch (error) {
+      fail(error, { json: options.json })
+    }
+  })
+
+  withJson(
+    command
+      .command('add')
+      .description(
+        'create an invoice (POST /api/invoices, fires invoice.created)',
+      )
+      .option('--patientId <patientId>', 'patient the invoice is for')
+      .option(
+        '--clinicId <clinicId>',
+        'clinic the invoice belongs to (implied by an API key)',
+      )
+      .option('--status <status>', `one of ${STATUSES}`)
+      .option('--startTime <startTime>', 'ISO start time')
+      .option('--endTime <endTime>', 'ISO end time')
+      .option('--note <note>', 'free-text note')
+      .option(
+        '--body <json>',
+        'extra JSON fields merged into the request body, e.g. lines or discount',
+      ),
+  ).action(async options => {
+    try {
+      const body = options.body ? parseBody(options.body) : {}
+      const invoice = await api.post('/api/invoices', {
+        ...body,
+        ...(options.patientId && { patientId: options.patientId }),
+        ...(options.clinicId && { clinicId: options.clinicId }),
+        ...(options.status && { status: options.status }),
+        ...(options.startTime && { startTime: options.startTime }),
+        ...(options.endTime && { endTime: options.endTime }),
+        ...(options.note && { note: options.note }),
+      })
+      if (options.json) {
+        printJson({ ok: true, id: invoice._id })
+        return
+      }
+      printJson(invoice)
+    } catch (error) {
+      fail(error, { json: options.json })
+    }
+  })
+
+  withJson(
+    command
+      .command('update <invoiceId>')
+      .description(
+        'update an invoice (PUT /api/invoices/:invoiceId, fires invoice.updated)',
+      )
+      .option('--patientId <patientId>', 'patient the invoice is for')
+      .option('--clinicId <clinicId>', 'clinic the invoice belongs to')
+      .option('--status <status>', `one of ${STATUSES}`)
+      .option('--startTime <startTime>', 'ISO start time')
+      .option('--endTime <endTime>', 'ISO end time')
+      .option('--note <note>', 'free-text note')
+      .option(
+        '--body <json>',
+        'extra JSON fields merged into the request body, e.g. lines or discount',
+      ),
+  ).action(async (invoiceId, options) => {
+    try {
+      const body = options.body ? parseBody(options.body) : {}
+      // PUT /api/invoices/:invoiceId spreads the body without reading the
+      // path parameter, so an update that omits `_id` would create a second
+      // invoice instead of editing this one.
+      const clinicId = await resolveClinicId(options, body, () =>
+        api.get(`/api/invoices/${invoiceId}`),
+      )
+      const invoice = await api.put(`/api/invoices/${invoiceId}`, {
+        ...body,
+        _id: invoiceId,
+        ...(clinicId && { clinicId }),
+        ...(options.patientId && { patientId: options.patientId }),
+        ...(options.status && { status: options.status }),
+        ...(options.startTime && { startTime: options.startTime }),
+        ...(options.endTime && { endTime: options.endTime }),
+        ...(options.note && { note: options.note }),
+      })
+      if (options.json) {
+        printJson({ ok: true, id: invoice._id })
+        return
+      }
+      printJson(invoice)
+    } catch (error) {
+      fail(error, { json: options.json })
+    }
+  })
+
+  withJson(
+    command
+      .command('delete <invoiceId...>')
+      .description(
+        'delete one or more invoices by id (DELETE /api/invoices/:invoiceId)',
+      ),
+  ).action(async (invoiceIds, options) => {
+    const deleted = []
+    for (let index = 0; index < invoiceIds.length; index += 1) {
+      const invoiceId = invoiceIds[index]
+      try {
+        await api.del(`/api/invoices/${invoiceId}`)
+        deleted.push(invoiceId)
+        if (!options.json) {
+          console.log(`deleted ${invoiceId}`)
+        }
+      } catch (error) {
+        fail(error, { json: options.json })
+      }
+    }
+    if (options.json) {
+      printJson({ ok: deleted.length === invoiceIds.length, deleted })
+    }
+  })
+
+  return command
+}
+
+module.exports = invoicesCommand
