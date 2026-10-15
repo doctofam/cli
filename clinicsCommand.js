@@ -1,13 +1,11 @@
 /* Copyright 2025 Doctofam LLC */
-const commander = require('commander')
-const {
-  printJson,
-  withJson,
-  fail,
-} = require('@monorepool/agentfirst/output.js')
-const buildQuery = require('./buildQuery.js')
-const api = require('./request.js')
-const { dim, bold, cyan } = require('./formatOutput.js')
+
+import { fail, printJson, withJson } from '@monorepool/agentfirst/output.js'
+import * as commander from 'commander'
+
+import buildQuery from './buildQuery.js'
+import { bold, cyan, dim } from './formatOutput.js'
+import api from './request.js'
 
 // Read-only on purpose: doctofam/api/handlers/scopes.js has `clinics:read`
 // and deliberately no `clinics:write`, and POST/PUT/DELETE /api/clinics are
@@ -111,4 +109,4 @@ function clinicsCommand() {
   return command
 }
 
-module.exports = clinicsCommand
+export default clinicsCommand

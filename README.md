@@ -18,7 +18,7 @@ Requires Node.js 18 or newer.
 ## Quick start
 
 ```bash
-doctofam login                                   # choose browser or API key login
+doctofam login                                   # choose browser, another device or API key login
 doctofam clinics list                            # the clinics of your practice
 doctofam patients list --email maria@example.com # find one patient
 doctofam appointments list --startTime 2026-08-01T00:00:00.000Z
@@ -49,12 +49,18 @@ doctofam signup --email founder@example.com --json
 
 ## Authentication
 
-Two ways in, both stored in `~/.doctofam/`:
+Three ways in, all stored in `~/.doctofam/`:
 
 - **Browser** — `doctofam login --browser` opens
   [app.doctofam.com](https://app.doctofam.com) in your browser to log in with
   your DoctoFam account, then stores a token session. Tokens are refreshed
   automatically; requests carry `Authorization: Token base64(<jwt>)`.
+- **Another device** — `doctofam login --device` is for a terminal whose browser
+  you cannot use: a remote desktop without copy and paste, an SSH session, a
+  server. It prints a link, a QR code and a one-time code: open the link on your
+  phone or on any computer where you are signed in to DoctoFam, check that the
+  code matches and approve. The terminal then stores a session of its own, as
+  `--browser` does. The code works once and expires after ten minutes.
 - **API key** — `doctofam login --with-key` prompts for an API key secret with
   a masked input. Create the key in the DoctoFam dashboard, under your clinic's
   API keys. The secret is shown **once**, when the key is created, and never
@@ -117,8 +123,9 @@ doctofam patients list --json -n 100 | jq '.[] | {id: ._id, name, email}'
 
 ```bash
 doctofam signup --email founder@example.com   # create an account and log in
-doctofam login                # interactive: choose browser or API key login
+doctofam login                # interactive: browser, another device or API key
 doctofam login --browser      # log in through app.doctofam.com
+doctofam login --device       # approve the login from a phone or another computer
 doctofam login --with-key     # prompt for an API key secret (masked)
 doctofam logout               # clear everything stored in ~/.doctofam/
 ```
